@@ -23,17 +23,18 @@ input_file = sys.argv[1]
 ctx = MLContext(allow_unregistered=True)
 
 # Register Arith, Builtin, Func, Linalg, Memref
-ctx.register_dialect(arith.Arith)
-ctx.register_dialect(builtin.Builtin)
-ctx.register_dialect(func.Func)
-ctx.register_dialect(linalg.Linalg)
-ctx.register_dialect(memref.MemRef)
+# ctx.register_dialect("arith", arith.Arith)
+ctx.load_dialect(arith.Arith)
+ctx.load_dialect(builtin.Builtin)
+ctx.load_dialect(func.Func)
+ctx.load_dialect(linalg.Linalg)
+ctx.load_dialect(memref.MemRef)
 
 
 @dataclass
 class ArrayAccess:
     name: str
-    index : list[str]
+    index: list[str]
 
     def __str__(self):
         indexing = ""
@@ -123,13 +124,13 @@ class Workload:
         # Require each arg to be ContainerType
         # TODO: Add this to linalg.Generic verifier
         for arg in loop_body.args:
-            match arg.typ:
+            match arg.type:
                 case builtin.Float32Type():
                     bitwidth = 32
                 case builtin.Float64Type():
                     bitwidth = 64
                 case _:
-                    raise NotImplementedError(f"Unsupported element type: {arg.typ}")
+                    raise NotImplementedError(f"Unsupported element type: {arg.type}")
             out[self._block_arg_to_name(arg)] = bitwidth
 
         # Make precision of O_final same as O.
@@ -176,7 +177,7 @@ class Workload:
 
         return ArrayAccess(self._block_arg_to_name(arg), build_indexing())
 
-    def _try_syntactic_sugar(self, out : ArrayAccess | Binop) -> str | None:
+    def _try_syntactic_sugar(self, out: ArrayAccess | Binop) -> str | None:
         if isinstance(out, Binop):
             if isinstance(out.lhs, ArrayAccess) and out.lhs.name == "O":
                 return str(out.lhs) + " " + out.op + "= " + str(out.rhs)
@@ -189,11 +190,11 @@ class Workload:
         # trace the graph.
         payload = self.op.body.blocks[0]
         yield_op = payload.last_op
-        assert isinstance(yield_op, linalg.Yield)
+        assert isinstance(yield_op, linalg.YieldOp)
 
         # Assert that the number of outputs is 1, since ZigZag doesn't support
         # multiple arguements.
-        assert len(yield_op.values) == 1
+        assert len(yield_op.arguments) == 1
 
         # Trace op, building the equation.
         def trace_output(arg: SSAValue) -> Binop | ArrayAccess:
@@ -222,7 +223,7 @@ class Workload:
                         f"Unsupported operation in payload: {owner_op}"
                     )
 
-        out = trace_output(yield_op.values[0])
+        out = trace_output(yield_op.arguments[0])
 
         # Check if out can be converted to op=
         if eq := self._try_syntactic_sugar(out):
